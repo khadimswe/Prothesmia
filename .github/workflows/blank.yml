@@ -1,0 +1,126 @@
+# Prothesmia — agent loop workflow
+#
+# Two triggers:
+#   1. schedule: runs nightly, has Claude Code look for open issues labeled
+#      `agent-ready`, pick one, implement it, open a PR.
+#   2. pull_request: runs tests/lint on every PR so branch protection has
+#      something to gate on before auto-merge.
+#
+# This is stage 1 — it does NOT deploy to Cloud Run yet. That's a separate
+# job added once this stage is confirmed working, so a mistake in the GCP
+# auth step can't also break the basic build-and-test path.
+
+name: Agent Loop
+
+on:
+  schedule:
+    # 09:15 UTC daily — 15 minutes after the Clock's own tick, so if the
+    # nightly build breaks something you notice via the Clock logs first.
+    - cron: '15 9 * * *'
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+
+jobs:
+
+  # -------------------------------------------------------------------------
+  # Runs on every PR and push to main. This is the check branch protection
+  # will require before merge.
+  # -------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install agents/ dependencies
+        run: |
+          if [ -f agents/requirements.txt ]; then
+            pip install -r agents/requirements.txt
+          else
+            echo "no agents/requirements.txt yet — skipping"
+          fi
+
+      - name: Run Python tests
+        run: |
+          if [ -d agents ]; then
+            pip install pytest
+            pytest agents/ || exit 1
+          else
+            echo "no agents/ directory yet — skipping"
+          fi
+
+      - name: Set up Node
+        if: hashFiles('web/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install web/ dependencies
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: npm ci
+
+      - name: Lint + typecheck web/
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: |
+          npm run lint --if-present
+          npx tsc --noEmit --project . || true
+
+      - name: Design token gate
+        run: |
+          if [ -d web ]; then
+            echo "Checking for raw hex colors / banned CSS patterns outside tokens.css..."
+            VIOLATIONS=$(grep -rniE "#[0-9a-fA-F]{3,8}|gradient|backdrop-filter|blur\(|rounded-full|border-radius: *9999px" web/ \
+              --include="*.css" --include="*.tsx" --include="*.ts" --include="*.jsx" \
+              --exclude="tokens.css" || true)
+            if [ -n "$VIOLATIONS" ]; then
+              echo "$VIOLATIONS"
+              echo "::error::Design system violation — raw color or banned pattern found outside tokens.css"
+              exit 1
+            fi
+          else
+            echo "no web/ directory yet — skipping"
+          fi
+
+  # -------------------------------------------------------------------------
+  # The nightly agent run. Only fires on schedule or manual dispatch —
+  # never on every push, or it'd try to work issues on every commit.
+  # -------------------------------------------------------------------------
+  agent:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Claude Code on agent-ready issues
+        uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        with:
+          # --allowedTools is mandatory in automation mode — omitting it
+          # produces an opaque is_error:true with no useful message.
+          allowed_tools: "Bash,Edit,Read,Write,Glob,Grep"
+          prompt: |
+            Look at open GitHub issues labeled "agent-ready" in this repo,
+            oldest first. Pick exactly one. Read CLAUDE.md, docs/SPEC.md, and
+            docs/MILESTONES.md first if they exist. Implement the issue fully,
+            following every constraint stated in the issue body — especially
+            any statute values, seed dates, or idempotency requirements,
+            which must not be altered. Write or update tests. Keep the PR
+            under ~400 lines. Never commit to main directly — open a PR.
+            Never modify .github/workflows/. Never touch secrets. If the
+            issue is ambiguous or requires a product decision not covered by
+            the docs, do not guess — open a new issue labeled "needs-human"
+            explaining the blocker, and stop.
