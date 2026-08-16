@@ -1,0 +1,137 @@
+# Prothesmia — Milestones
+
+Back-timed from **2026-08-31 17:00 PDT**. Today: **2026-08-16**.
+**We submit 2026-08-30.** That leaves **14 days.**
+
+Agents: update the status column as you complete work. **Do not add milestones.**
+Scope changes go through a `needs-human` issue.
+
+---
+
+## Reality check — where we actually are
+
+Done:
+- GCP project `prothesmia`, billing linked, $150 credits
+- APIs enabled, Firestore `(default)` created (nam5, native)
+- Pub/Sub topics `clock.tick`, `clock.breach`, `clock.tick.dlq`
+- Service account `prothesmia-agents` with three least-privilege roles
+- Workload Identity Federation, repo-scoped to `khadimswe/Prothesmia`
+- Anchor verified: FEMA-4834-DR-FL, NOAA imagery confirmed available
+- Statutes verified: Fla. Stat. §627.70131(1)(a) and (7)(a)
+- Agent loop workflow running
+
+Not done: **any application code at all.**
+
+---
+
+## M0 — Clock ticking (Aug 16–17) — `in progress` 🔴
+
+The only milestone whose value is destroyed by delay. Every day the Clock is not
+deployed is a day of `clock_checks` history that cannot be recreated.
+
+- [ ] `agents/` ADK service scaffolded, deployed to Cloud Run, `/healthz` responds
+- [ ] Firestore schema: `claims`, `clock_checks`, `breaches`, `artifacts`, `findings`, `escalations`
+- [ ] Statute module with all three rules + golden tests, including a tolled case
+- [ ] Clock: Cloud Scheduler → `clock.tick` → push subscription → ADK agent
+- [ ] Idempotent writes: `clock_checks/{claim_id}:{YYYY-MM-DD}`, `breaches/{claim_id}:breach`
+- [ ] DLQ wired, max 5 delivery attempts
+- [ ] `scripts/seed.py` — four claims, exact dates below, idempotent
+- [ ] `CLAUDE.md`, `docs/SPEC.md`, `docs/MILESTONES.md` committed
+- [ ] Fire the scheduler manually, twice, confirm exactly 4 rows not 8
+
+**Seed dates — do not alter.**
+
+| id | statute | notice_at | deadline_at | expected state Aug 28 |
+|---|---|---|---|---|
+| `clm-001` | `FL-627.70131-7a` | 2026-06-25 | 2026-08-24 | breached |
+| `clm-002` | `FL-627.70131-1a` | 2026-08-13 | 2026-08-20 | breached |
+| `clm-003` | `FL-627.70131-7a` | 2026-07-14 | 2026-09-12 | inside 25% |
+| `clm-004` | `FL-627.70131-7a` | 2026-08-01 | 2026-09-30 | comfortable |
+
+**Exit:** Cloud Scheduler shows a green run, `clock_checks` has four rows dated today.
+
+**Daily check until Aug 28 — put it on your phone:**
+```
+gcloud scheduler jobs describe prothesmia-daily --location=us-central1 --format='value(status.lastAttemptTime,state)'
+```
+A scheduler job that silently died on Aug 20 and gets noticed on Aug 28 is the one
+failure in this build with no recovery path.
+
+## M1 — Imagery pipeline (Aug 17–20) — `not started` 🔴 HIGHEST RISK
+
+Prove: parcel → NOAA imagery tile → Gemini returns a structured damage assessment.
+Ugly HTML is fine. If this doesn't work the visual demo dies — find out early.
+
+- [ ] NOAA NGS imagery fetch for a Milton-affected parcel, stored to Cloud Storage with capture date + source URL + sha256
+- [ ] Before/after tile pair for the same parcel
+- [ ] `Assessor` ADK agent: Gemini 3.5 Flash multimodal, **structured output schema**, not free text
+- [ ] Confidence per finding. Low confidence surfaces as low confidence — the agent does not guess.
+- [ ] Assert in a test that no output field is currency-typed (Rule 3)
+- [ ] `artifacts` and `findings` written with full provenance
+
+**Exit:** one real parcel, two real imagery dates, a structured finding that cites both.
+
+## M2 — Intake + packet (Aug 19–22) — `not started`
+
+- [ ] OpenFEMA connector — declaration lookup by county + date. Validate content, not status codes.
+- [ ] Parcel record lookup `TODO(verify)` source per county
+- [ ] `Intake` agent: address → parcel → declaration match → `claims` doc → publish `claim.opened`
+- [ ] `Packager` agent: assembles the packet, every element with source + timestamp
+- [ ] Cloud Trace across the Pub/Sub hops so one claim is followable end to end
+
+**Exit:** submit an address, get a complete packet with nothing hardcoded.
+
+## M3 — Escalator (Aug 21–25) — `not started`
+
+The 40% criterion lives here.
+
+- [ ] `Escalator` subscribes to `clock.breach`
+- [ ] Drafts the DFS complaint: statute section, trigger date, days elapsed past deadline, imagery and parcel citations
+- [ ] Idempotent on `claim_id` — a redelivered breach never drafts twice
+- [ ] `TODO(verify)` whether FL DFS accepts machine filing. If web-form only, the copy says *drafts and puts one click from filing*. Honest either way.
+- [ ] Notification to the survivor on breach
+
+**Exit:** `clm-002` breaches on Aug 20 and a complaint exists by Aug 21, with nobody present.
+
+## M4 — Design (Aug 23–27) — `not started`
+
+Per SPEC §7, binding. Where the demo becomes memorable.
+
+- [ ] `web/styles/tokens.css` + CI design gate green
+- [ ] Claim file screen — deadline rail, evidence plates, packet state. 90% of the budget.
+- [ ] The filing screen — document face, every assertion citing its source
+- [ ] Fleet screen — timestamps, "no user present" badges
+- [ ] Inter Tight, JetBrains Mono, Source Serif 4 loaded
+- [ ] `prefers-reduced-motion` honored, four motion moments only
+
+**Exit:** open on a phone, it looks like an instrument, not a template.
+
+## M5 — Ship (Aug 27–30) — `not started`
+
+Do not compress this. Half the score lives here.
+
+- [ ] `docs/ARCHITECTURE.md` Mermaid diagram, renders on GitHub
+- [ ] `README.md` reproducible from zero, including the WIF setup
+- [ ] `min-instances=1` on both Cloud Run services
+- [ ] Rehearse the demo ten times
+- [ ] 4-min video, one unbroken take, Cloud Console + Scheduler history + Vertex logs + DLQ on screen
+- [ ] **Backup video recorded**
+- [ ] Devpost writeup — lead with the architectural argument
+- [ ] Bonus: Gemma triage pass
+- [ ] Bonus: dev.to or Medium post, must state it was written for this hackathon
+- [ ] Bonus: social post with `#AllThingsAgenticHackathon`
+- [ ] **SUBMIT AUG 30.** One full day of slack.
+
+---
+
+## Scope freeze — 2026-08-24
+
+No new features after this date. Anything proposed after it goes in an issue labeled
+`post-hackathon` and gets closed.
+
+## The two ways this loses
+
+1. Nothing works on Aug 30 because scope crept. Mitigated by the freeze and SPEC §9.
+2. It works and the video doesn't show it. Mitigated by budgeting four days for M5.
+
+Both are self-inflicted. Neither is about the idea.
