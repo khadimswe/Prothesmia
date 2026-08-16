@@ -113,6 +113,7 @@ jobs:
           # produces an opaque is_error:true with no useful message.
           # It goes through claude_args now, not a top-level input.
           claude_args: "--allowedTools Bash,Edit,Read,Write,Glob,Grep"
+          show_full_output: true
           prompt: |
             Look at open GitHub issues labeled "agent-ready" in this repo,
             oldest first. Pick exactly one. Read CLAUDE.md, docs/SPEC.md, and
