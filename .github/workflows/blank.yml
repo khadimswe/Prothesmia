@@ -101,17 +101,18 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      id-token: write   # required for the action's OIDC token fetch
     steps:
       - uses: actions/checkout@v4
 
       - name: Run Claude Code on agent-ready issues
         uses: anthropics/claude-code-action@v1
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # --allowedTools is mandatory in automation mode — omitting it
           # produces an opaque is_error:true with no useful message.
-          allowed_tools: "Bash,Edit,Read,Write,Glob,Grep"
+          # It goes through claude_args now, not a top-level input.
+          claude_args: "--allowedTools Bash,Edit,Read,Write,Glob,Grep"
           prompt: |
             Look at open GitHub issues labeled "agent-ready" in this repo,
             oldest first. Pick exactly one. Read CLAUDE.md, docs/SPEC.md, and
