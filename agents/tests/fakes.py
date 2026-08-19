@@ -1,23 +1,30 @@
-"""Minimal in-memory fakes for Firestore and Pub/Sub used by clock tests.
+"""Minimal in-memory fakes for Firestore, Pub/Sub, Cloud Storage, the NOAA
+imagery client, and the Gemini client used by the Clock, Escalator, and
+Assessor tests.
 
-These implement only the surface `clock.service.run_clock_tick` touches:
-`collection().where().stream()`, `collection().document(id).create()`, and
-`publisher.publish()` / `publisher.topic_path()`. No network, no GCP
-credential required.
+These implement only the surface the three agents' service modules touch:
+`collection().where().stream()`, `collection().document(id).create()`,
+`.get()`, `.update()`, `publisher.publish()` / `publisher.topic_path()`,
+`storage_client.bucket().blob().upload_from_string()`,
+`imagery_client.fetch_pair()`, and `genai_client.models.generate_content()`.
+No network, no GCP or Vertex AI credential required.
 """
 
 from __future__ import annotations
 
-from google.api_core.exceptions import AlreadyExists
+from types import SimpleNamespace
+
+from google.api_core.exceptions import AlreadyExists, NotFound
 
 
 class FakeDocSnapshot:
-    def __init__(self, doc_id: str, data: dict):
+    def __init__(self, doc_id: str, data: dict, exists: bool = True):
         self.id = doc_id
         self._data = data
+        self.exists = exists
 
-    def to_dict(self) -> dict:
-        return dict(self._data)
+    def to_dict(self) -> dict | None:
+        return dict(self._data) if self.exists else None
 
 
 class FakeDocumentRef:
@@ -29,6 +36,16 @@ class FakeDocumentRef:
         if self._doc_id in self._store:
             raise AlreadyExists(f"document already exists: {self._doc_id}")
         self._store[self._doc_id] = dict(data)
+
+    def get(self) -> FakeDocSnapshot:
+        if self._doc_id in self._store:
+            return FakeDocSnapshot(self._doc_id, self._store[self._doc_id])
+        return FakeDocSnapshot(self._doc_id, {}, exists=False)
+
+    def update(self, data: dict) -> None:
+        if self._doc_id not in self._store:
+            raise NotFound(f"document not found: {self._doc_id}")
+        self._store[self._doc_id].update(data)
 
 
 class FakeQuery:
@@ -73,3 +90,72 @@ class FakePublisherClient:
 
     def publish(self, topic_path: str, data: bytes, **attrs) -> None:
         self.published.append((topic_path, data, attrs))
+
+
+class FakeGenAIModels:
+    def __init__(self, response_text: str):
+        self.response_text = response_text
+        self.calls: list[dict] = []
+
+    def generate_content(self, *, model: str, contents, config=None):
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        return SimpleNamespace(text=self.response_text)
+
+
+class FakeGenAIClient:
+    """Stands in for `google.genai.Client`. `response_text` is the canned
+    drafting output the test controls — the fake never actually formats
+    prose, so tests assert on what was sent in (the prompt) and on how the
+    service reacts to the canned response coming back out."""
+
+    def __init__(self, response_text: str = ""):
+        self.models = FakeGenAIModels(response_text)
+
+
+class FakeBlob:
+    def __init__(self, bucket: "FakeBucket", name: str):
+        self._bucket = bucket
+        self.name = name
+        self.content_type: str | None = None
+
+    def upload_from_string(self, data: bytes, content_type: str | None = None) -> None:
+        self.content_type = content_type
+        self._bucket.blobs[self.name] = data
+
+
+class FakeBucket:
+    def __init__(self, name: str):
+        self.name = name
+        self.blobs: dict[str, bytes] = {}
+
+    def blob(self, name: str) -> FakeBlob:
+        return FakeBlob(self, name)
+
+
+class FakeStorageClient:
+    """Stands in for `google.cloud.storage.Client`."""
+
+    def __init__(self):
+        self.buckets: dict[str, FakeBucket] = {}
+
+    def bucket(self, name: str) -> FakeBucket:
+        return self.buckets.setdefault(name, FakeBucket(name))
+
+
+class FakeImageryClient:
+    """Stands in for `assessor.imagery.NOAAImageryClient`. Tests configure
+    `pre_tile`/`post_tile` (both `assessor.imagery.ImageryTile`) or `error`
+    to raise, and can assert on `bbox_calls` to check what bbox the service
+    asked for."""
+
+    def __init__(self, pre_tile=None, post_tile=None, error: Exception | None = None):
+        self.pre_tile = pre_tile
+        self.post_tile = post_tile
+        self.error = error
+        self.bbox_calls: list[tuple] = []
+
+    def fetch_pair(self, bbox):
+        self.bbox_calls.append(bbox)
+        if self.error is not None:
+            raise self.error
+        return self.pre_tile, self.post_tile

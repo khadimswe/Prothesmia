@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY common/ ./common/
 COPY statutes/ ./statutes/
 COPY clock/ ./clock/
+COPY escalator/ ./escalator/
+COPY assessor/ ./assessor/
 COPY main.py .
 
 USER prothesmia
