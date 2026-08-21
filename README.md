@@ -70,7 +70,7 @@ pure arithmetic over dates, no I/O, no network, fully unit tested.
 | **Intake** | User submits address + policy | Partial | *(not built yet)* |
 | **Assessor** | Pub/Sub `claim.opened` | Yes — Gemini 3.5 Flash | *(not built yet)* |
 | **Packager** | After Assessor | Partial | *(not built yet)* |
-| **Escalator** | Pub/Sub `clock.breach` | Yes — drafting only | *(not built yet)* |
+| **Escalator** | Pub/Sub `clock.breach` | Yes — drafting only | ✅ built, not deployed |
 
 ```mermaid
 graph TB
@@ -109,9 +109,11 @@ document ID:
 
 - `clock_checks/{claim_id}:{YYYY-MM-DD}`
 - `breaches/{claim_id}:breach`
+- `escalations/{claim_id}:escalation`
 
-Both use create-if-absent semantics. Firing the scheduler twice in one minute produces
-four rows, not eight. There is a test for exactly this.
+All three use create-if-absent semantics. Firing the scheduler twice in one minute
+produces four `clock_checks` rows, not eight. A redelivered `clock.breach` message
+drafts — and calls Gemini — exactly once. There is a test for each.
 
 ## Honesty
 
@@ -260,9 +262,10 @@ pip3 install -r requirements-dev.txt
 pytest
 ```
 
-24 tests. Golden cases for every statute rule, including the superseded 2021 90-day
+30 tests. Golden cases for every statute rule, including the superseded 2021 90-day
 version and a tolled case that proves a tolled claim is **not** reported as breached
-when the untolled deadline would have passed.
+when the untolled deadline would have passed. The Escalator tests assert the drafted
+complaint always contains the exact statute citation and never a dollar figure.
 
 ---
 

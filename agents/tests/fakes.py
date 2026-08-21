@@ -7,6 +7,8 @@ These implement only the surface the three agents' service modules touch:
 `.get()`, `.update()`, `publisher.publish()` / `publisher.topic_path()`,
 `storage_client.bucket().blob().upload_from_string()`,
 `imagery_client.fetch_pair()`, and `genai_client.models.generate_content()`.
+No rasterio/GDAL read happens here either — `FakeImageryClient` returns
+prebuilt chips.
 No network, no GCP or Vertex AI credential required.
 """
 
@@ -144,13 +146,17 @@ class FakeStorageClient:
 
 class FakeImageryClient:
     """Stands in for `assessor.imagery.NOAAImageryClient`. Tests configure
-    `pre_tile`/`post_tile` (both `assessor.imagery.ImageryTile`) or `error`
+    `pre_chip`/`post_chip` (both `assessor.imagery.ImageryChip`) or `error`
     to raise, and can assert on `bbox_calls` to check what bbox the service
-    asked for."""
+    asked for.
 
-    def __init__(self, pre_tile=None, post_tile=None, error: Exception | None = None):
-        self.pre_tile = pre_tile
-        self.post_tile = post_tile
+    The real client window-reads a remote COG through GDAL; this fake does
+    no I/O at all, so tests hand it small in-memory chip bytes and still
+    exercise the service's validation, provenance, and storage logic."""
+
+    def __init__(self, pre_chip=None, post_chip=None, error: Exception | None = None):
+        self.pre_chip = pre_chip
+        self.post_chip = post_chip
         self.error = error
         self.bbox_calls: list[tuple] = []
 
@@ -158,4 +164,4 @@ class FakeImageryClient:
         self.bbox_calls.append(bbox)
         if self.error is not None:
             raise self.error
-        return self.pre_tile, self.post_tile
+        return self.pre_chip, self.post_chip
